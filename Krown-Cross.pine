@@ -1,0 +1,100 @@
+//@version=5
+strategy("Krown Kross", overlay=true, max_bars_back = 1000, precision=2)
+
+///////////////////////////////////////////////////////////////////////////////
+// Input default variable declarations
+col_lime = color.new(color.lime, 0)
+col_red = color.new(color.red, 0)
+col_teal = color.new(color.teal, 0)
+
+///////////////////////////////////////////////////////////////////////////////
+// Inputs
+len1 = input.int(9, "Moving Average 1 Length", group="Moving Averages", inline="1")
+len2 = input.int(21, "Moving Average 2 Length", group="Moving Averages", inline="2")
+len3 = input.int(55, "Moving Average 3 Length", group="Moving Averages", inline="3")
+
+col1 = input.color(col_lime, "", group="Moving Averages", inline="1")
+col2 = input.color(col_red, "", group="Moving Averages", inline="2")
+col3 = input.color(col_teal, "", group="Moving Averages", inline="3")
+bblimit = input.float(35, "BBWP volatility filter", group="Strategy Settings")
+pmlimit = input.float(15, "PMARP volatility filter", group="Strategy Settings")
+
+trendlookback = input.int(50, title="Trend lookback window", group="Strategy Settings")
+rangelookback = input.int(20, title="Trend lookback window", group="Strategy Settings")
+
+//i_priceSrc      = "SMA" //input.source  ( close,    'Price Source',                                                                         group='BBWP Properties')
+i_basisType     = "VWMA"
+i_bbwpLen       = input.int     ( 13,       'Length',                           minval=1,                                           group='BBWP Properties')
+i_bbwpLkbk      = input.int     ( 252,      'Lookback',                         minval=1,                                           group='BBWP Properties')
+
+//i_src_price         = input.source  ( close,        'Price source',                                                                         inline='1',     group='PMARP Properties')
+i_ma_len            = input.int     ( 20,           'PMAR length',              minval=1,                                                   inline='3',     group='PMARP Properties')
+i_ma_typ            = "VWMA" //input.string  ( 'VWMA',       'MA type...',               options=[ 'SMA', 'EMA', 'HMA', 'RMA', 'VWMA' ],             inline='3',     group='PMARP Properties')
+i_pmarp_lookback    = input.int     ( 350,          'Lookback',                 minval=1, maxval=1000,                                      inline='2',     group='PMARP Properties')
+
+///////////////////////////////////////////////////////////////////////////////
+// Function Declarations
+f_maType ( _price, _len, _type ) =>
+    _type == 'SMA' ? ta.sma ( _price, _len ) : _type == 'EMA' ? ta.ema ( _price, _len ) : ta.vwma ( _price, _len )
+
+f_bbwp ( _price, _bbwLen, _bbwpLen, _type ) =>
+    float _basis = f_maType ( _price, _bbwLen, _type )
+    float _dev = ta.stdev ( _price, _bbwLen )
+    _bbw = ( _basis + _dev - ( _basis - _dev )) / _basis
+    _bbwSum = 0.0
+    _len = bar_index < _bbwpLen ? bar_index : _bbwpLen
+    for _i = 1 to _len by 1
+        _bbwSum += ( _bbw[_i] > _bbw ? 0 : 1 )
+        _bbwSum
+    _return = bar_index >= _bbwLen ? ( _bbwSum / _len) * 100 : na
+    _return
+
+f_ma_val ( _P, _typ, _len ) =>
+    _typ == 'SMA' ? ta.sma ( _P, _len ) : _typ == 'EMA' ? ta.ema ( _P, _len ) : _typ == 'RMA' ? ta.rma ( _P, _len ) : _typ == 'HMA' ? ta.hma ( _P, _len ) : ta.vwma ( _P, _len )
+
+f_pmarp ( _price, _pmarLen, _pmarpLen, _type ) =>
+    _pmar = math.abs ( _price / f_ma_val ( _price, _type, _pmarLen ))
+    _pmarpSum = 0
+    _len = bar_index < _pmarpLen ? bar_index : _pmarpLen
+    for i = 1 to _len by 1
+        _pmarpSum += ( _pmar[i] > _pmar ? 0 : 1 )
+        _pmarpSum
+    _return = bar_index >= _pmarLen ? _pmarpSum / _len * 100 : na
+
+//f_clrSlct ( _percent, _select, _type, _solid, _array1, _array2 ) =>
+//    _select == 'Solid' ? _solid : array.get ( _type == 'Blue Green Red' ? _array1 : _array2, math.round ( _percent ))
+
+/////////////////////////////////////////////////////////////////////////////// 
+// calculations
+i_col1 = col1
+i_col2 = col2
+i_col3 = col3
+
+bbwp = f_bbwp(close, i_bbwpLen, i_bbwpLkbk, "VWMA")
+pmarp= f_pmarp(close, i_ma_len, i_pmarp_lookback, "VWMA")
+
+ma1 = ta.ema(close, len1)
+ma2 = ta.ema(close, len2)
+ma3 = ta.ema(close, len3)
+
+upBoundTrend = ta.highest(high, trendlookback)
+upBoundRange = ta.highest(high, rangelookback)
+downBoundTrend = ta.lowest(low, trendlookback)
+downBoundRange = ta.lowest(low, rangelookback)
+
+trendup = ma3 < ma2 and ma2 < ma1 ? true : false
+trenddn = ma1 < ma2 and ma2 < ma3 ? true : false
+
+sell = trenddn and bbwp <= bblimit ? true : false
+buy = trenddn and sell and pmarp <= pmlimit
+
+
+plot(ma1, title="EMA1", color=i_col1, linewidth=2)
+plot(ma2, title="EMA2", color=i_col2, linewidth=2)
+plot(ma3, title="EMA3", color=i_col3, linewidth=2)
+
+// These are plotted just to see values in the data window
+plot(bbwp, color=color.new(color.yellow, 100), title="BBWP")
+plot(pmarp, color=color.new(color.purple, 100), title="PMARP")
+
+//strategy.entry("Short", strategy.short, comment="DUMP")
